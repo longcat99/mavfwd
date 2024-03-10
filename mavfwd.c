@@ -31,9 +31,9 @@ const char *default_master = "/dev/ttyAMA0";
 const int default_baudrate = 115200;
 const char *defualt_out_addr = "127.0.0.1:14600";
 const char *default_in_addr =  "127.0.0.1:0";
-const int RC_CHANNELS = 65; //RC_CHANNELS ( #65 ) for regular MAVLINK RC Channels read (https://mavlink.io/en/messages/common.html#RC_CHANNELS)
-const int RC_CHANNELS_RAW = 35; //RC_CHANNELS_RAW ( #35 ) for ExpressLRS,Crossfire and other RC procotols (https://mavlink.io/en/messages/common.html#RC_CHANNELS_RAW)
-
+const int RC_CHANNELS = 65;//RC_CHANNELS ( #65 ) 用于读取常规 MAVLINK RC 通道 (https://mavlink.io/en/messages/common.html#RC_CHANNELS)
+const int RC_CHANNELS_RAW = 35;//RC_CHANNELS_RAW ( #35 ) 用于 ExpressLRS、Crossfire 和其他 RC 协议 (https://mavlink.io/en/messages/common.html#RC_CHANNELS_RAW)
+const int RC_CHANNELS_OVERRIDE =70; 
 
 
 uint8_t ch_count = 0;
@@ -103,7 +103,7 @@ static speed_t speed_by_value(int baudrate)
 	}
 }
 
-uint64_t get_current_time_ms() // in milliseconds
+uint64_t get_current_time_ms()//以毫秒为单位
 {
     struct timespec ts;
     int rc = clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -174,7 +174,7 @@ static void dump_mavlink_packet(unsigned char *data, const char *direction)
   
   uint16_t val;
   
-	if((msg_id == RC_CHANNELS || msg_id == RC_CHANNELS_RAW ) && ch_count > 0) {
+	if((msg_id == RC_CHANNELS || msg_id == RC_CHANNELS_RAW || msg_id == RC_CHANNELS_OVERRIDE ) && ch_count > 0) {
       uint8_t offset = 18; //15 = 1ch;
       for(uint8_t i=0; i < ch_count; i++) {
           val = data[offset] | (data[offset+1] << 8);
@@ -261,12 +261,12 @@ static uint8_t system_id=1;
 
 static unsigned long long LastWfbSent=0;
 
-/// @brief wfb_tx output should be redirected to wfb.log. Parse it and extracted dropped packets!
-/// @return 
+///@brief wfb_tx 输出应重定向到 wfb.log。解析它并提取丢弃的数据包！
+///@返回
 static bool SendWfbLogToGround(){
 	if (!monitor_wfb)
 		return false;
-	if ( abs(get_current_time_ms()-LastWfbSent) < 1000)//Once a second max
+	if ( abs(get_current_time_ms()-LastWfbSent) < 1000)//最多每秒一次
 		return false;
 
 	LastWfbSent = abs(get_current_time_ms());		
@@ -501,7 +501,7 @@ unsigned long long get_current_time_ms_simple() {
 
 uint16_t channels[18];
 
-//how long a RC value should stay at one level to issue a command
+//RC 值应保持在一个级别多长时间才能发出命令
 
 static uint64_t LastStart=0;//
 static unsigned long LastValue=0;
@@ -513,7 +513,7 @@ static uint64_t mavpckts_ttl=0;
 void ProcessChannels(){
 	//ch_count , not zero based, 1 is first
 	uint16_t val=0;
-	if (ch_count<1 || ch_count>16  /* || (mavpckts_ttl<100*/ ) //wait in the beginning for the values to settle
+	if (ch_count<1 || ch_count>16  /* || (mavpckts_ttl<100*/ )//在开始时等待值稳定
 		return;
 
 	if ( abs(get_current_time_ms()-LastStart) < wait_after_bash)		
@@ -522,16 +522,16 @@ void ProcessChannels(){
 	val=channels[ch_count-1];
 	
 	if (abs(val-NewValue)>32 && ChannelPersistPeriodmMS>0){
-		//We have a new value, let us wait for it to persist
+		//我们有了新的价值观，让我们等待它的坚持
 		NewValue=val;
 		NewValueStart=get_current_time_ms();		
 		return;
 	}else
 		if (abs(get_current_time_ms()-NewValueStart)<ChannelPersistPeriodmMS)		
-			return;//New value should remain "stable" for a second before being approved					
-		else{}//New value persisted for more THAN ChannelPersistPeriodmMS					
+			return;//新值在获得批准之前应保持“稳定”一秒钟
+		else{}//新值持续时间超过 ChannelPersistPeriodmMS
 
-	if (abs(val-LastValue)<32)//the change is too small	
+	if (abs(val-LastValue)<32)//变化太小
 		return;	
 	
 	NewValue=val;
@@ -543,7 +543,7 @@ void ProcessChannels(){
 	printf("Starting(%d): %s n",ChannelCmds,buff);
 	LastStart=get_current_time_ms();
     
-	if (ChannelCmds>0){//intentionally skip the first command, since when stating mavfwd it will always receive some channel value and execute the script
+	if (ChannelCmds>0){//故意跳过第一个命令，因为在声明 mavfwd 时它总是会接收一些通道值并执行脚本
     	system(buff);
 		
 	}
@@ -696,9 +696,9 @@ static void serial_read_cb(struct bufferevent *bev, void *arg)
 			}
 		}
 
-		//Let's try to parse the stream	
-		if (aggregate>0 || ch_count>0)//if no RC channel control needed, only forward the data
-			process_mavlink(data,packet_len, arg);//Let's try to parse the stream		
+		//让我们尝试解析流
+		if (aggregate>0 || ch_count>0)//如果不需要RC通道控制，则只转发数据
+			process_mavlink(data,packet_len, arg);//让我们尝试解析流
 
 		evbuffer_drain(input, packet_len);
 	}
@@ -871,7 +871,7 @@ static int handle_data(const char *port_name, int baudrate,
 	// it's recommended by libevent authors to ignore SIGPIPE
 	signal(SIGPIPE, SIG_IGN);
 
-	//Test inject a simple packet to test malvink communication Camera to Ground
+	//测试注入一个简单的数据包来测试 Malvink 相机与地面的通信
 	signal(SIGUSR1, sendtestmsg);
 
 	serial_bev = bufferevent_socket_new(base, serial_fd, 0);
